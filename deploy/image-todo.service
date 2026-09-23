@@ -1,0 +1,25 @@
+[Unit]
+Description=Personal To-Do
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=image-todo
+Group=image-todo
+WorkingDirectory=/opt/image-todo
+EnvironmentFile=/etc/image-todo.env
+Environment=APP_DATA_DIR=/var/lib/image-todo
+Environment=APP_ADDR=0.0.0.0:8080
+ExecStart=/opt/image-todo/server
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/image-todo
+
+[Install]
+WantedBy=multi-user.target
