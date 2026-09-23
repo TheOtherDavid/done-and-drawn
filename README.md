@@ -1,4 +1,4 @@
-# Personal To-Do MVP
+# Done and Drawn
 
 A single-household manual task list with a character reward image generated after a task is completed. The Go service keeps task state and settings in SQLite, stores images on disk, and serves the Vue app and API from one origin.
 
@@ -8,17 +8,28 @@ A single-household manual task list with a character reward image generated afte
 - Node.js 20 or newer
 - An OpenAI API key for reward image generation
 
-## Run in development
+## Run locally on Windows
 
-From the repository root, start the backend:
+From the repository root, create your local settings file and add your OpenAI API key once:
 
 ```powershell
-$env:APP_DATA_DIR = "./data"
-$env:APP_ADDR = "127.0.0.1:8080"
-go run ./cmd/server
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
 ```
 
-In a second terminal, start the Vue development server:
+Start or restart the app with one command:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-local.ps1
+```
+
+Open http://127.0.0.1:8080/. The launcher builds the Vue app and Go server, stops the previous local instance, then starts the new one with the values from `.env`. For a quick restart without rebuilding, pass `-SkipBuild` to the same command.
+
+The `.env` file is ignored by Git. The launcher passes the key only to the backend process after the frontend build finishes. It keeps SQLite and images under `data/` by default; back up that directory together. To change the key or model, edit `.env` and restart.
+
+## Frontend development
+
+Start the backend as above. In a second terminal, run:
 
 ```powershell
 cd frontend
@@ -26,24 +37,7 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by Vite. Its `/api` and `/media` requests are proxied to the Go backend.
-
-## Build and run as one service
-
-```powershell
-cd frontend
-npm install
-npm run build
-cd ..
-$env:OPENAI_API_KEY = "your-key"
-$env:APP_DATA_DIR = "./data"
-$env:APP_ADDR = "0.0.0.0:8080"
-go run ./cmd/server
-```
-
-The Vue build is embedded in the Go binary. The persistent data directory contains `app.sqlite` and `images/`; back up the directory together. Keep the API key in the backend environment or service configuration, never in Vue or the SQLite settings.
-
-The default address allows other devices on the household network to connect. Restrict access to that network and do not forward the service port from the internet.
+Open the URL printed by Vite. Its `/api` and `/media` requests are proxied to the Go backend. The local `.env` binds the Go server to this PC; the Raspberry Pi service below uses its own network address.
 
 ## Raspberry Pi service
 

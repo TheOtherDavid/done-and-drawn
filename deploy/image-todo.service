@@ -1,5 +1,5 @@
 [Unit]
-Description=Personal To-Do
+Description=Done and Drawn
 After=network-online.target
 Wants=network-online.target
 

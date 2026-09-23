@@ -3,7 +3,7 @@
     <header class="topbar">
       <a class="brand" href="#" @click.prevent="activeView = 'tasks'">
         <span class="brand-mark">✳</span>
-        <span>Daily Adventures</span>
+        <span>Done and Drawn</span>
       </a>
       <nav class="main-nav" aria-label="Main navigation">
         <button :class="{ active: activeView === 'tasks' }" @click="activeView = 'tasks'">My tasks</button>
