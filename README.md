@@ -1,6 +1,6 @@
 # Done and Drawn
 
-A single-household manual task list with a character reward image generated after a task is completed. The Go service keeps task state and settings in SQLite, stores images on disk, and serves the Vue app and API from one origin.
+A single-household manual task list with a character reward image generated after a task is completed. Completed rewards can be revisited in a lazy-loading gallery, opened at full size, and downloaded as original image files. The Go service keeps task state and settings in SQLite, stores images on disk, and serves the Vue app and API from one origin.
 
 ## Requirements
 

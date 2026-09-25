@@ -178,6 +178,23 @@ func (s *Store) ListTasks(ctx context.Context) ([]Task, error) {
 	return tasks, rows.Err()
 }
 
+func (s *Store) ListReadyRewards(ctx context.Context) ([]Task, error) {
+	rows, err := s.db.QueryContext(ctx, taskSelect+` WHERE completed_at IS NOT NULL AND reward_status = 'ready' AND reward_image_path IS NOT NULL AND reward_image_path <> '' ORDER BY completed_at DESC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	rewards := make([]Task, 0)
+	for rows.Next() {
+		task, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		rewards = append(rewards, task)
+	}
+	return rewards, rows.Err()
+}
+
 func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 	return scanTask(s.db.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, id))
 }

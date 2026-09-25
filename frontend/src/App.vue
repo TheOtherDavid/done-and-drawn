@@ -7,6 +7,7 @@
       </a>
       <nav class="main-nav" aria-label="Main navigation">
         <button :class="{ active: activeView === 'tasks' }" @click="activeView = 'tasks'">My tasks</button>
+        <button :class="{ active: activeView === 'gallery' }" @click="openGallery">Reward gallery</button>
         <button :class="{ active: activeView === 'settings' }" @click="openSettings">Character settings</button>
       </nav>
     </header>
@@ -87,7 +88,7 @@
                         <p class="task-date">Finished {{ formatDate(task.completed_at) }}</p>
                       </div>
                       <button v-if="task.reward_image_url" class="reward-thumb-button" :aria-label="`View reward for ${task.title}`" @click="openReward(task)">
-                        <img :src="task.reward_image_url" alt="Task reward" class="reward-thumb" />
+                        <img :src="task.reward_image_url" alt="Task reward" class="reward-thumb" loading="lazy" decoding="async" />
                       </button>
                       <button v-else-if="task.reward_status === 'failed'" class="text-link" @click="openReward(task)">Reward failed · View</button>
                       <button v-else class="text-link" @click="openReward(task)">View reward</button>
@@ -111,6 +112,51 @@
               </button>
             </form>
           </aside>
+        </div>
+      </section>
+
+      <section v-else-if="activeView === 'gallery'" class="gallery-view">
+        <div class="settings-heading gallery-heading">
+          <button class="back-link" @click="activeView = 'tasks'">← Back to tasks</button>
+          <p class="eyebrow">COMPLETED REWARDS</p>
+          <h1>Reward gallery</h1>
+          <p class="subtitle">Revisit every completed reward and download the original image.</p>
+        </div>
+        <div v-if="galleryError" class="notice error-notice" role="alert">
+          {{ galleryError }}
+          <button class="text-link" @click="openGallery">Try again</button>
+        </div>
+        <div v-else-if="galleryLoading" class="gallery-state" role="status" aria-live="polite">
+          <span class="tiny-spinner"></span><span>Loading rewards…</span>
+        </div>
+        <div v-else-if="!galleryRewards.length" class="gallery-empty">
+          <div class="empty-mark">✧</div>
+          <h2>No rewards yet</h2>
+          <p>Complete a task to add its reward image here.</p>
+        </div>
+        <div v-else class="gallery-grid" aria-label="Reward images">
+          <article v-for="task in galleryRewards" :key="task.id" class="gallery-card">
+            <button class="gallery-image-button" :aria-label="`Open full-size reward for ${task.title}`" :disabled="!!galleryImageErrors[task.id]" @click="openReward(task)">
+              <img
+                v-if="!galleryImageErrors[task.id]"
+                :src="task.reward_image_url"
+                :alt="`Reward image for ${task.title}`"
+                loading="lazy"
+                decoding="async"
+                @error="markGalleryImageError(task.id)"
+              />
+              <span v-else class="gallery-image-error" role="status">Image unavailable</span>
+              <span v-if="!galleryImageErrors[task.id]" class="gallery-image-open">Open full size</span>
+            </button>
+            <div class="gallery-card-details">
+              <div class="gallery-card-copy">
+                <h2>{{ task.title }}</h2>
+                <p>{{ formatFullDate(task.completed_at) }}</p>
+              </div>
+              <a v-if="!galleryImageErrors[task.id]" class="secondary-button gallery-download" :href="rewardDownloadURL(task)" download>Download</a>
+              <span v-else class="gallery-unavailable">Unavailable</span>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -166,7 +212,7 @@
     <footer class="footer"><span>Plan the day. Finish the work.</span><span>✦</span></footer>
 
     <div v-if="selectedTask" class="modal-backdrop" @click.self="closeReward">
-      <section class="reward-modal" role="dialog" aria-modal="true" aria-labelledby="reward-title">
+      <section class="reward-modal" :class="{ 'gallery-reward-modal': activeView === 'gallery' }" role="dialog" aria-modal="true" aria-labelledby="reward-title">
         <button class="modal-close" aria-label="Close reward" @click="closeReward">×</button>
         <template v-if="selectedTask.reward_status === 'queued' || selectedTask.reward_status === 'generating'">
           <div class="preparing-art"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="preparing-star">✦</span></div>
@@ -180,7 +226,10 @@
           <h2 id="reward-title">You got it done.</h2>
           <p class="reward-copy">Reward for completing <strong>{{ selectedTask.title }}</strong>.</p>
           <img :src="selectedTask.reward_image_url" alt="Your character celebrating your completed task" class="reward-image" />
-          <button class="primary-button modal-done" @click="closeReward">Keep going</button>
+          <div class="reward-modal-actions">
+            <a class="secondary-button" :href="rewardDownloadURL(selectedTask)" download>Download original</a>
+            <button class="primary-button modal-done" @click="closeReward">Keep going</button>
+          </div>
         </template>
         <template v-else>
           <div class="failed-art">✧</div>
@@ -199,8 +248,12 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { jsonOptions, request } from './api'
 
 const tasks = ref([])
+const galleryRewards = ref([])
+const galleryImageErrors = ref({})
 const activeView = ref('tasks')
 const pageError = ref('')
+const galleryError = ref('')
+const galleryLoading = ref(false)
 const settingsError = ref('')
 const settingsMessage = ref('')
 const showCompleted = ref(true)
@@ -246,7 +299,11 @@ const completedTaskGroups = computed(() => {
       tasks: group.tasks.sort((first, second) => new Date(second.completed_at) - new Date(first.completed_at)),
     }))
 })
-const selectedTask = computed(() => tasks.value.find((task) => task.id === selectedTaskId.value) || null)
+const selectedTask = computed(() => {
+  const task = tasks.value.find((item) => item.id === selectedTaskId.value)
+  const galleryTask = galleryRewards.value.find((item) => item.id === selectedTaskId.value)
+  return activeView.value === 'gallery' ? galleryTask || task || null : task || galleryTask || null
+})
 const expandedCompletedDays = ref({})
 
 function isCompletedDayExpanded(group, index) {
@@ -282,6 +339,24 @@ async function openSettings() {
   } catch (error) {
     settingsError.value = error.message
   }
+}
+
+async function openGallery() {
+  activeView.value = 'gallery'
+  galleryError.value = ''
+  galleryLoading.value = true
+  galleryImageErrors.value = {}
+  try {
+    galleryRewards.value = await request('/api/rewards')
+  } catch (error) {
+    galleryError.value = error.message
+  } finally {
+    galleryLoading.value = false
+  }
+}
+
+function markGalleryImageError(id) {
+  galleryImageErrors.value = { ...galleryImageErrors.value, [id]: true }
 }
 
 async function createTask() {
@@ -363,6 +438,7 @@ function replaceTask(task) {
 
 function openReward(task) { selectedTaskId.value = task.id }
 function closeReward() { selectedTaskId.value = null }
+function rewardDownloadURL(task) { return `/api/rewards/${encodeURIComponent(task.id)}/download` }
 
 async function saveSettings() {
   savingSettings.value = true
@@ -431,6 +507,13 @@ async function removeReference(reference) {
 function formatDate(value) {
   if (!value) return ''
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value))
+}
+
+function formatFullDate(value) {
+  if (!value) return 'Date unavailable'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Date unavailable'
+  return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'long', day: 'numeric' }).format(date)
 }
 
 function completedDayKey(value) {

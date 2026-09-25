@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -12,12 +13,119 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"image-todo/internal/assets"
 	"image-todo/internal/store"
 )
+
+func TestReadyRewardGalleryAndOriginalDownload(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "tasks.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	images, err := assets.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ready, err := db.CreateTask(ctx, "Mow the lawn", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.CompleteTask(ctx, ready.ID); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := db.ClaimNextTask(ctx); err != nil || claimed == nil || claimed.ID != ready.ID {
+		t.Fatalf("ready reward task was not claimed: task=%+v err=%v", claimed, err)
+	}
+	imageData := validPNG(t)
+	if err := images.Save("rewards/ready.png", imageData); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkReady(ctx, ready.ID, "rewards/ready.png"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Millisecond)
+
+	newer, err := db.CreateTask(ctx, "Newer reward", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.CompleteTask(ctx, newer.ID); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := db.ClaimNextTask(ctx); err != nil || claimed == nil || claimed.ID != newer.ID {
+		t.Fatalf("newer reward task was not claimed: task=%+v err=%v", claimed, err)
+	}
+	if err := images.Save("rewards/newer.png", imageData); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkReady(ctx, newer.ID, "rewards/newer.png"); err != nil {
+		t.Fatal(err)
+	}
+
+	failed, err := db.CreateTask(ctx, "Failed reward", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.CompleteTask(ctx, failed.ID); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := db.ClaimNextTask(ctx); err != nil || claimed == nil || claimed.ID != failed.ID {
+		t.Fatalf("failed reward task was not claimed: task=%+v err=%v", claimed, err)
+	}
+	if err := db.MarkFailed(ctx, failed.ID, "generation failed"); err != nil {
+		t.Fatal(err)
+	}
+
+	queued, err := db.CreateTask(ctx, "Queued reward", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.CompleteTask(ctx, queued.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := New(db, images, nil, false, fstest.MapFS{}, "example.com").Handler()
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/api/rewards", nil))
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("gallery status = %d, want 200; body=%s", listResponse.Code, listResponse.Body.String())
+	}
+	var rewards []store.Task
+	if err := json.Unmarshal(listResponse.Body.Bytes(), &rewards); err != nil {
+		t.Fatal(err)
+	}
+	if len(rewards) != 2 || rewards[0].ID != newer.ID || rewards[1].ID != ready.ID || rewards[0].RewardStatus != store.RewardReady || rewards[1].RewardImageURL != "/media/rewards/ready.png" {
+		t.Fatalf("gallery should list only ready rewards newest first: %+v", rewards)
+	}
+
+	downloadResponse := httptest.NewRecorder()
+	handler.ServeHTTP(downloadResponse, httptest.NewRequest(http.MethodGet, "/api/rewards/"+ready.ID+"/download", nil))
+	if downloadResponse.Code != http.StatusOK {
+		t.Fatalf("download status = %d, want 200; body=%s", downloadResponse.Code, downloadResponse.Body.String())
+	}
+	if downloadResponse.Header().Get("Content-Type") != "image/png" || !strings.Contains(downloadResponse.Header().Get("Content-Disposition"), "attachment; filename=") || !strings.Contains(downloadResponse.Header().Get("Content-Disposition"), "Mow-the-lawn.png") {
+		t.Fatalf("download headers do not identify the original image and useful filename: %v", downloadResponse.Header())
+	}
+	if !bytes.Equal(downloadResponse.Body.Bytes(), imageData) {
+		t.Fatal("download did not return the original stored image")
+	}
+
+	for _, id := range []string{failed.ID, queued.ID} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/rewards/"+id+"/download", nil))
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("download for non-ready task %s returned %d, want 404", id, response.Code)
+		}
+	}
+}
 
 func TestFrontendServesCorrectContentTypes(t *testing.T) {
 	frontend := fstest.MapFS{

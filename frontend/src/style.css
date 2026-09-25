@@ -100,6 +100,30 @@ label { display: block; color: #514a56; font-size: 12px; font-weight: 600; margi
 .reward-thumb-button { flex: 0 0 43px; border: 0; padding: 0; border-radius: 8px; background: transparent; }
 .reward-thumb { display: block; width: 43px; height: 43px; object-fit: cover; border-radius: 8px; }
 .completed-card .text-link { flex: 0 0 auto; font-size: 11px; }
+.gallery-heading { margin-bottom: 27px; }
+.gallery-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.gallery-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--paper); box-shadow: 0 5px 18px rgba(59, 43, 56, .035); }
+.gallery-image-button { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 1 / 1; overflow: hidden; border: 0; padding: 12px; background: #f5efeb; }
+.gallery-image-button:disabled { cursor: default; }
+.gallery-image-button img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 7px; }
+.gallery-image-button:hover img { transform: scale(1.025); }
+.gallery-image-open { position: absolute; right: 12px; bottom: 12px; border-radius: 7px; padding: 6px 9px; color: #fff; background: rgba(48, 43, 56, .78); font-size: 10px; font-weight: 600; }
+.gallery-image-error { display: grid; place-items: center; width: 100%; height: 100%; border: 1px dashed #d8c9c4; border-radius: 8px; color: #837a81; background: #faf6f3; font-size: 12px; }
+.gallery-unavailable { flex: 0 0 auto; color: #968f98; font-size: 10px; }
+.gallery-card-details { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; }
+.gallery-card-copy { min-width: 0; }
+.gallery-card-copy h2 { overflow-wrap: anywhere; margin: 0 0 5px; font-size: 13px; letter-spacing: -.2px; }
+.gallery-card-copy p { margin: 0; color: #968f98; font-size: 10px; }
+.secondary-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-height: 36px; border: 1px solid #e3d4d1; border-radius: 8px; padding: 8px 11px; color: #8c4943; background: #fffaf8; text-decoration: none; font-size: 11px; font-weight: 600; }
+.secondary-button:hover { border-color: #cf918a; color: var(--red); background: var(--red-pale); }
+.gallery-state { min-height: 150px; display: flex; align-items: center; justify-content: center; gap: 12px; border: 1px solid var(--line); border-radius: 14px; color: #837a81; background: rgba(255,253,250,.72); font-size: 13px; }
+.gallery-state .tiny-spinner { width: 16px; height: 16px; }
+.gallery-empty { padding: 64px 20px; border: 1px dashed #e4cfcc; border-radius: 15px; text-align: center; background: rgba(255,253,250,.5); }
+.gallery-empty h2 { margin: 0 0 7px; font-size: 20px; }
+.gallery-empty p { margin: 0; color: #99919c; font-size: 12px; }
+.reward-modal-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+.gallery-reward-modal { width: min(1000px, 100%); }
+.gallery-reward-modal .reward-image { width: auto; max-width: 100%; max-height: 68vh; margin: 15px auto 21px; }
 .notice { border-radius: 10px; padding: 12px 15px; margin: -25px 0 24px; font-size: 12px; }
 .error-notice { color: #9b514c; background: #f8eae6; }
 .success-notice { color: #55765d; background: #eaf1e8; }
@@ -172,11 +196,12 @@ label { display: block; color: #514a56; font-size: 12px; font-weight: 600; margi
   .main-nav { margin-left: 30px; }
   .topbar-note { display: none; }
   .prompt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 650px) {
   .topbar { height: auto; min-height: 68px; flex-wrap: wrap; gap: 8px; padding: 11px 18px; }
   .brand { font-size: 16px; }
-  .main-nav { margin-left: auto; gap: 0; }
+  .main-nav { margin-left: auto; gap: 0; flex-wrap: wrap; justify-content: flex-end; }
   .main-nav button { padding: 9px 8px; font-size: 11px; }
   .page-wrap { width: min(100% - 32px, 520px); padding: 38px 0 54px; }
   .hero-row { align-items: flex-start; flex-direction: column; margin-bottom: 35px; }
@@ -190,6 +215,7 @@ label { display: block; color: #514a56; font-size: 12px; font-weight: 600; margi
   .section-heading h2 { font-size: 21px; }
   .settings-heading h1 { font-size: 34px; }
   .prompt-grid { grid-template-columns: 1fr; }
+  .gallery-grid { grid-template-columns: 1fr; }
   .reference-header { align-items: flex-start; flex-direction: column; }
   .reward-modal { padding-top: 39px; }
   .notice { margin-top: -15px; }

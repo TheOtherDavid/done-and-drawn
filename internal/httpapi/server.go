@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"image"
@@ -19,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"golang.org/x/image/webp"
 
@@ -67,6 +69,8 @@ func (a *API) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /api/tasks", a.listTasks)
+	mux.HandleFunc("GET /api/rewards", a.listRewards)
+	mux.HandleFunc("GET /api/rewards/{id}/download", a.downloadReward)
 	mux.HandleFunc("POST /api/tasks", a.createTask)
 	mux.HandleFunc("PATCH /api/tasks/{id}", a.updateTask)
 	mux.HandleFunc("DELETE /api/tasks/{id}", a.deleteTask)
@@ -95,6 +99,95 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 		tasks[i] = publicTask(tasks[i])
 	}
 	writeJSON(w, http.StatusOK, tasks)
+}
+
+func (a *API) listRewards(w http.ResponseWriter, r *http.Request) {
+	rewards, err := a.store.ListReadyRewards(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Could not load rewards")
+		return
+	}
+	for i := range rewards {
+		rewards[i] = publicTask(rewards[i])
+	}
+	writeJSON(w, http.StatusOK, rewards)
+}
+
+func (a *API) downloadReward(w http.ResponseWriter, r *http.Request) {
+	task, err := a.store.GetTask(r.Context(), r.PathValue("id"))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "Reward image not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Could not load reward image")
+		return
+	}
+	if task.CompletedAt == nil || task.RewardStatus != store.RewardReady || task.RewardImagePath == "" {
+		writeError(w, http.StatusNotFound, "Reward image not found")
+		return
+	}
+
+	file, err := a.assets.Open(task.RewardImagePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		writeError(w, http.StatusNotFound, "Reward image file is missing")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Could not open reward image")
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Could not read reward image")
+		return
+	}
+
+	filename := rewardDownloadFilename(task)
+	contentType := mime.TypeByExtension(filepath.Ext(filename))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.ServeContent(w, r, filename, info.ModTime(), file)
+}
+
+func rewardDownloadFilename(task store.Task) string {
+	var name strings.Builder
+	previousDash := false
+	for _, char := range strings.TrimSpace(task.Title) {
+		if unicode.IsLetter(char) || unicode.IsDigit(char) || char == '_' {
+			name.WriteRune(char)
+			previousDash = false
+			continue
+		}
+		if !previousDash && name.Len() > 0 {
+			name.WriteByte('-')
+			previousDash = true
+		}
+	}
+	cleanTitle := strings.Trim(name.String(), "-_")
+	titleRunes := []rune(cleanTitle)
+	if len(titleRunes) > 72 {
+		cleanTitle = string(titleRunes[:72])
+	}
+	if cleanTitle == "" {
+		cleanTitle = "task"
+	}
+	date := "unknown-date"
+	if task.CompletedAt != nil {
+		date = task.CompletedAt.Format("2006-01-02")
+	}
+	extension := strings.ToLower(filepath.Ext(task.RewardImagePath))
+	switch extension {
+	case ".png", ".jpg", ".jpeg", ".webp":
+	default:
+		extension = ".png"
+	}
+	return date + "-" + cleanTitle + extension
 }
 
 func (a *API) createTask(w http.ResponseWriter, r *http.Request) {

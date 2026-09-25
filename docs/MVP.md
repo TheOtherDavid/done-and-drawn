@@ -6,7 +6,7 @@
 
 A single-household to-do app. The user creates and manages manual tasks. Completing a task immediately saves it as completed and queues one surprise image generation featuring the canonical character doing or celebrating that task.
 
-The task list is the main screen. A newly completed task opens a reward view: while work is pending, show **“Your reward is being prepared”**; when the image is ready, reveal it prominently. Keep a thumbnail on the completed task afterward. Show a clear failed state if generation fails, with a user-initiated retry.
+The task list is the main screen. A newly completed task opens a reward view: while work is pending, show **“Your reward is being prepared”**; when the image is ready, reveal it prominently. Keep a thumbnail on the completed task afterward. A reward gallery lists ready reward images newest first, opens each at full size, and downloads the original file. Show a clear failed state if generation fails, with a user-initiated retry.
 
 The minimal settings screen edits the character prompt, style prompt, and reference images. There is one global character definition and exactly one reference marked canonical; additional reference images may be kept alongside it. There is no character or prompt version history.
 
@@ -30,7 +30,7 @@ flowchart LR
 - **Backend:** Go HTTP API and one serial, in-process background worker.
 - **Frontend:** Vue app served by the Go service on the same origin in deployment. The browser only talks to the backend.
 - **Database:** SQLite stores tasks, reward state, character prompts, and image paths. A queued task row is the durable work queue; no separate queue service or jobs table is needed.
-- **Images:** Store uploaded references and generated rewards on the Pi's local filesystem. Store relative paths in SQLite and serve image files through backend routes. Write generated files to a temporary path and rename them into place before marking a reward ready.
+- **Images:** Store uploaded references and generated rewards on the Pi's local filesystem. Store relative paths in SQLite and serve image files through backend routes, including an attachment endpoint for original reward downloads. Write generated files to a temporary path and rename them into place before marking a reward ready.
 - **Secrets and network:** Keep the OpenAI API key in backend environment/configuration only. Do not return it from settings APIs or bundle it into Vue. Run on the household LAN, with no public hosting or router port forwarding. The MVP assumes a trusted household network and does not add accounts.
 - **Runtime data:** Keep the SQLite database and image directory together under a configurable persistent data directory so they can be backed up as one set.
 
@@ -69,6 +69,7 @@ The settings UI can replace the canonical image and manage optional additional r
 3. The single worker claims a queued task by changing it to `generating` in SQLite, builds an image request from the task text plus the current appearance, clothing, home, companion, personality, art style, and reference images, and calls OpenAI using the backend-only key.
 4. On success, the worker saves the image to local storage and changes the task to `ready` with its image path. The frontend polls task state and reveals the image prominently; the completed task card keeps a thumbnail.
 5. On failure, the worker records `failed` and a concise error. There are no automatic generation retries. The user can explicitly retry from the reward view, which returns that completed task to `queued`.
+6. The reward gallery lists only completed tasks whose reward state is `ready` and whose original image path is present. Results are ordered by completion time, newest first. Gallery thumbnails load lazily; opening a reward shows the stored image at full size, and downloading uses the original local image file.
 
 Queued rows survive restarts and are picked up on worker startup. A row left `generating` by a process crash is changed to `failed` at startup and requires an explicit retry. If OpenAI accepted a request before the crash but the result was not saved, an explicit retry could incur a second charge; the MVP cannot guarantee exactly-once behavior across that boundary. There is no automatic retry of ambiguous requests.
 
@@ -77,7 +78,7 @@ Queued rows survive restarts and are picked up on worker startup. A row left `ge
 1. Create a fresh Go backend and Vue frontend in this repository, with a small same-origin deployment setup and configurable persistent data directory.
 2. Add SQLite schema/access for tasks and singleton character settings. Implement the manual task API and atomic completion-plus-queue transition.
 3. Add the single worker, OpenAI image request, local file storage, reward state updates, startup recovery, and explicit retry endpoint.
-4. Build the task list/create/edit/delete UI, completion reward state and prominent reveal, completed-task thumbnails, and minimal character settings/reference-image UI.
+4. Build the task list/create/edit/delete UI, completion reward state and prominent reveal, completed-task thumbnails, a lazy-loading reward gallery with full-size viewing and original downloads, and minimal character settings/reference-image UI.
 5. Package it for the Raspberry Pi as one service, configure the backend-only API key, and document LAN-only operation and backup paths.
 
 ## Explicit non-goals
@@ -87,5 +88,5 @@ Queued rows survive restarts and are picked up on worker startup. A row left `ge
 - Recurring tasks, task templates, or scheduled task generation
 - Image generation before completion or reward pre-generation
 - Redis, SQS, Kafka, Kubernetes, or distributed workers
-- Galleries, style marketplaces, cost dashboards, notifications, or generalized SaaS features
+- Style marketplaces, cost dashboards, notifications, or generalized SaaS features
 - Character or prompt version history
