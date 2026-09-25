@@ -3,13 +3,12 @@
     <header class="topbar">
       <a class="brand" href="#" @click.prevent="activeView = 'tasks'">
         <span class="brand-mark">✳</span>
-        <span>Done and Drawn</span>
+        <span>Done & Drawn</span>
       </a>
       <nav class="main-nav" aria-label="Main navigation">
         <button :class="{ active: activeView === 'tasks' }" @click="activeView = 'tasks'">My tasks</button>
         <button :class="{ active: activeView === 'settings' }" @click="openSettings">Character settings</button>
       </nav>
-      <span class="topbar-note">Plan it. Do it. Move on.</span>
     </header>
 
     <main class="page-wrap">
@@ -17,8 +16,8 @@
         <div class="hero-row">
           <div>
             <p class="eyebrow">TODAY</p>
-            <h1>Pick a task. Get it done.</h1>
-            <p class="subtitle">Complete a task to unlock its reward.</p>
+            <h1>Unlock Your Productivity! Unlock a Reward!</h1>
+            <p class="subtitle">Complete a task to see it visualized.</p>
           </div>
           <div class="day-card"><span class="day-spark">✦</span><span>Start with one.</span></div>
         </div>
@@ -66,25 +65,42 @@
 
             <div v-if="showCompleted && completedTasks.length" class="completed-section">
               <div class="section-heading completed-heading"><div><p class="eyebrow">COMPLETED TASKS</p><h2>Completed</h2></div></div>
-              <article v-for="task in completedTasks" :key="task.id" class="task-card completed-card">
-                <span class="done-check">✓</span>
-                <div class="task-copy">
-                  <h3>{{ task.title }}</h3>
-                  <p class="task-date">Finished {{ formatDate(task.completed_at) }}</p>
-                </div>
-                <button v-if="task.reward_image_url" class="reward-thumb-button" :aria-label="`View reward for ${task.title}`" @click="openReward(task)">
-                  <img :src="task.reward_image_url" alt="Task reward" class="reward-thumb" />
-                </button>
-                <button v-else-if="task.reward_status === 'failed'" class="text-link" @click="openReward(task)">Reward failed · View</button>
-                <button v-else class="text-link" @click="openReward(task)">View reward</button>
-              </article>
+              <div class="completed-day-groups">
+                <section v-for="(group, index) in completedTaskGroups" :key="group.key" class="completed-day">
+                  <button
+                    class="completed-day-toggle"
+                    :aria-expanded="isCompletedDayExpanded(group, index)"
+                    :aria-controls="`completed-day-${group.key}`"
+                    @click="toggleCompletedDay(group.key, index)"
+                  >
+                    <span class="completed-day-title">
+                      <span class="completed-day-label">{{ group.label }}</span>
+                      <span class="count-pill">{{ group.tasks.length }}</span>
+                    </span>
+                    <span class="completed-day-chevron" :class="{ expanded: isCompletedDayExpanded(group, index) }" aria-hidden="true">⌄</span>
+                  </button>
+                  <div v-show="isCompletedDayExpanded(group, index)" :id="`completed-day-${group.key}`" class="completed-day-tasks">
+                    <article v-for="task in group.tasks" :key="task.id" class="task-card completed-card">
+                      <span class="done-check">✓</span>
+                      <div class="task-copy">
+                        <h3>{{ task.title }}</h3>
+                        <p class="task-date">Finished {{ formatDate(task.completed_at) }}</p>
+                      </div>
+                      <button v-if="task.reward_image_url" class="reward-thumb-button" :aria-label="`View reward for ${task.title}`" @click="openReward(task)">
+                        <img :src="task.reward_image_url" alt="Task reward" class="reward-thumb" />
+                      </button>
+                      <button v-else-if="task.reward_status === 'failed'" class="text-link" @click="openReward(task)">Reward failed · View</button>
+                      <button v-else class="text-link" @click="openReward(task)">View reward</button>
+                    </article>
+                  </div>
+                </section>
+              </div>
             </div>
           </section>
 
           <aside class="add-panel">
             <p class="eyebrow">UP NEXT</p>
             <h2>Add a task</h2>
-            <p class="panel-intro">Write down what needs doing. Add details if they help.</p>
             <form @submit.prevent="createTask">
               <label for="task-title">What needs to get done?</label>
               <input id="task-title" v-model="newTitle" class="field" maxlength="300" required placeholder="e.g. Water the plants" />
@@ -108,19 +124,17 @@
         <div v-if="settingsError" class="notice error-notice" role="alert">{{ settingsError }}</div>
         <div v-if="settingsMessage" class="notice success-notice" role="status">{{ settingsMessage }}</div>
 
-        <div class="settings-grid">
-          <section class="settings-panel prompt-panel">
-            <p class="eyebrow">PROMPTS</p>
-            <label for="character-prompt">Character description</label>
-            <textarea id="character-prompt" v-model="settings.character_prompt" class="field prompt-field" rows="5" maxlength="12000" placeholder="Describe the character’s appearance and defining features."></textarea>
-            <label for="style-prompt">Visual style</label>
-            <textarea id="style-prompt" v-model="settings.style_prompt" class="field prompt-field" rows="4" maxlength="12000" placeholder="Describe the illustration style, colors, and mood."></textarea>
-            <div class="form-footer">
-              <span class="save-state">{{ settings.can_generate ? 'Ready to generate rewards' : 'Add a reference image to enable rewards' }}</span>
-              <button class="primary-button" :disabled="savingSettings" @click="saveSettings">{{ savingSettings ? 'Saving…' : 'Save changes' }}</button>
-            </div>
-          </section>
-
+        <div class="settings-content">
+          <div class="prompt-grid">
+            <section v-for="field in promptFields" :key="field.key" class="settings-panel prompt-panel">
+              <label :for="`prompt-${field.key}`">{{ field.label }}</label>
+              <textarea :id="`prompt-${field.key}`" v-model="settings[field.key]" class="field prompt-field" rows="3" maxlength="12000" :placeholder="field.placeholder"></textarea>
+            </section>
+          </div>
+          <div class="form-footer prompt-actions">
+            <span class="save-state">{{ settings.can_generate ? 'Ready to generate rewards' : 'Add a reference image to enable rewards' }}</span>
+            <button class="primary-button" :disabled="savingSettings" @click="saveSettings">{{ savingSettings ? 'Saving…' : 'Save changes' }}</button>
+          </div>
           <section class="settings-panel references-panel">
             <div class="reference-header">
               <div><p class="eyebrow">REFERENCE IMAGES</p><h2>Character references</h2></div>
@@ -129,7 +143,7 @@
                 <input type="file" accept="image/png,image/jpeg,image/webp" multiple :disabled="uploading" @change="uploadReferences" />
               </label>
             </div>
-            <p class="panel-intro">Choose one canonical image. Additional references help keep the character consistent.</p>
+            <p class="panel-intro">Choose one canonical image. Add up to 16 references, with a 32 MiB combined limit. Add an image to replace a missing reference file.</p>
             <div v-if="settings.references.length" class="reference-grid">
               <article v-for="reference in settings.references" :key="reference.id" class="reference-card" :class="{ canonical: reference.is_canonical }">
                 <img :src="reference.image_url" alt="Character reference" />
@@ -140,7 +154,7 @@
                 </div>
               </article>
             </div>
-            <div v-else class="upload-empty"><span>▧</span><p>No reference images yet</p><small>PNG, JPEG, or WebP · up to 15 MB each</small></div>
+            <div v-else class="upload-empty"><span>▧</span><p>No reference images yet</p><small>PNG, JPEG, or WebP · up to 15 MiB and 20 MP each</small></div>
             <p class="api-note" :class="{ ready: settings.can_generate }">
               <span class="status-dot"></span>{{ settings.can_generate ? 'Backend image generation is configured.' : 'A backend API key and canonical reference image are required.' }}
             </p>
@@ -201,12 +215,50 @@ const newDescription = ref('')
 const editingId = ref('')
 const editTitle = ref('')
 const editDescription = ref('')
-const settings = ref({ character_prompt: '', style_prompt: '', references: [], can_generate: false })
+const settings = ref({ appearance: '', clothing: '', home: '', companion: '', personality: '', art_style: '', references: [], can_generate: false })
+const promptFields = [
+  { key: 'appearance', label: 'Appearance', placeholder: 'Shape, colors, markings, and other defining features.' },
+  { key: 'clothing', label: 'Clothing', placeholder: 'Usual outfits, accessories, and clothing details.' },
+  { key: 'home', label: 'Home', placeholder: 'Home, favorite settings, or familiar surroundings.' },
+  { key: 'companion', label: 'Companion', placeholder: 'Companion character and how they appear together.' },
+  { key: 'personality', label: 'Personality', placeholder: 'Temperament, expressions, and mannerisms.' },
+  { key: 'art_style', label: 'Art style', placeholder: 'Medium, palette, lighting, and illustration style.' },
+]
 let pollTimer
 
 const openTasks = computed(() => tasks.value.filter((task) => !task.completed_at))
 const completedTasks = computed(() => tasks.value.filter((task) => task.completed_at))
+const completedTaskGroups = computed(() => {
+  const groups = new Map()
+  for (const task of completedTasks.value) {
+    const key = completedDayKey(task.completed_at)
+    if (!groups.has(key)) groups.set(key, { key, label: formatCompletedDay(key), tasks: [] })
+    groups.get(key).tasks.push(task)
+  }
+  return [...groups.values()]
+    .sort((first, second) => {
+      if (first.key === 'unknown') return 1
+      if (second.key === 'unknown') return -1
+      return second.key.localeCompare(first.key)
+    })
+    .map((group) => ({
+      ...group,
+      tasks: group.tasks.sort((first, second) => new Date(second.completed_at) - new Date(first.completed_at)),
+    }))
+})
 const selectedTask = computed(() => tasks.value.find((task) => task.id === selectedTaskId.value) || null)
+const expandedCompletedDays = ref({})
+
+function isCompletedDayExpanded(group, index) {
+  return Object.hasOwn(expandedCompletedDays.value, group.key) ? expandedCompletedDays.value[group.key] : index === 0
+}
+
+function toggleCompletedDay(key, index) {
+  expandedCompletedDays.value = {
+    ...expandedCompletedDays.value,
+    [key]: !isCompletedDayExpanded({ key }, index),
+  }
+}
 
 async function loadTasks() {
   try {
@@ -318,10 +370,14 @@ async function saveSettings() {
   settingsError.value = ''
   try {
     settings.value = await request('/api/settings', jsonOptions('PUT', {
-      character_prompt: settings.value.character_prompt,
-      style_prompt: settings.value.style_prompt,
+      appearance: settings.value.appearance,
+      clothing: settings.value.clothing,
+      home: settings.value.home,
+      companion: settings.value.companion,
+      personality: settings.value.personality,
+      art_style: settings.value.art_style,
     }))
-    settingsMessage.value = 'Your prompts are saved.'
+    settingsMessage.value = 'Character settings saved.'
   } catch (error) {
     settingsError.value = error.message
   } finally {
@@ -375,6 +431,19 @@ async function removeReference(reference) {
 function formatDate(value) {
   if (!value) return ''
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value))
+}
+
+function completedDayKey(value) {
+  if (!value) return 'unknown'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'unknown'
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-')
+}
+
+function formatCompletedDay(key) {
+  if (key === 'unknown') return 'Date unavailable'
+  const [year, month, day] = key.split('-').map(Number)
+  return new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(year, month - 1, day))
 }
 
 onMounted(() => {

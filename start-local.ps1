@@ -1,5 +1,6 @@
 param(
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$ForceRestart
 )
 
 Set-StrictMode -Version Latest
@@ -10,7 +11,7 @@ $envFile = Join-Path $repoRoot '.env'
 $buildDir = Join-Path $repoRoot 'build'
 $executable = Join-Path $buildDir 'done-and-drawn.exe'
 $nextExecutable = Join-Path $buildDir 'done-and-drawn-next.exe'
-$allowedNames = @('OPENAI_API_KEY', 'OPENAI_IMAGE_MODEL', 'APP_DATA_DIR', 'APP_ADDR')
+$allowedNames = @('OPENAI_API_KEY', 'OPENAI_IMAGE_MODEL', 'APP_DATA_DIR', 'APP_ADDR', 'APP_ALLOWED_HOSTS')
 
 if (-not (Test-Path -LiteralPath $envFile)) {
     throw "Missing .env. Copy .env.example to .env and add OPENAI_API_KEY."
@@ -98,6 +99,37 @@ try {
     foreach ($candidate in @(Get-Process -Name $knownNames -ErrorAction SilentlyContinue)) {
         try { $candidatePath = $candidate.Path } catch { continue }
         if (-not $candidatePath -or -not $candidatePath.StartsWith($buildPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+
+        $activeRewards = @()
+        $serverResponded = $false
+        try {
+            $listeners = @(Get-NetTCPConnection -OwningProcess $candidate.Id -State Listen -ErrorAction Stop)
+            foreach ($listener in $listeners) {
+                $probeHost = $listener.LocalAddress
+                if ($probeHost -eq '0.0.0.0') { $probeHost = '127.0.0.1' }
+                if ($probeHost -eq '::') { $probeHost = '::1' }
+                if ($probeHost.Contains(':') -and -not $probeHost.StartsWith('[')) { $probeHost = "[$probeHost]" }
+                try {
+                    $tasks = @(Invoke-RestMethod -Uri "http://${probeHost}:$($listener.LocalPort)/api/tasks" -TimeoutSec 5)
+                    $activeRewards = @($tasks | Where-Object { $_.reward_status -eq 'queued' -or $_.reward_status -eq 'generating' })
+                    $serverResponded = $true
+                    break
+                } catch { }
+            }
+            if (-not $serverResponded) { throw 'Could not reach the running server listener.' }
+        } catch {
+            if (-not $ForceRestart) {
+                throw "Cannot confirm whether rewards are generating; the running server was left in place. Retry when it responds, or use -ForceRestart to stop it anyway. A forced stop can lose a paid image result."
+            }
+            Write-Warning 'Reward status could not be checked. Forcing the restart may lose a paid image result.'
+        }
+        if ($activeRewards.Count -gt 0) {
+            if (-not $ForceRestart) {
+                throw "Restart postponed: $($activeRewards.Count) reward(s) are queued or generating. Wait for them to finish, then run this command again. Use -ForceRestart only if you accept that an in-flight image request may be charged again on retry."
+            }
+            Write-Warning "Forcing restart while $($activeRewards.Count) reward(s) are queued or generating. An in-flight image request may be charged again on retry."
+        }
+        Write-Host "Stopping previous server (PID $($candidate.Id)) after checking reward status."
         Stop-Process -Id $candidate.Id -Force -ErrorAction SilentlyContinue
         try { $candidate.WaitForExit(10000) | Out-Null } catch { }
         if (-not $candidate.HasExited) { throw "Could not stop the previous server (PID $($candidate.Id))." }

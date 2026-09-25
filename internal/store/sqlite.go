@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("operation conflicts with current state")
+	ErrNotFound       = errors.New("not found")
+	ErrConflict       = errors.New("operation conflicts with current state")
+	ErrReferenceLimit = errors.New("reference image limit reached")
 )
 
 type Store struct {
@@ -61,8 +62,12 @@ func migrate(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_tasks_reward_queue ON tasks(reward_status, completed_at)`,
 		`CREATE TABLE IF NOT EXISTS character_settings (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
-			character_prompt TEXT NOT NULL DEFAULT '',
-			style_prompt TEXT NOT NULL DEFAULT '',
+			appearance_prompt TEXT NOT NULL DEFAULT '',
+			clothing_prompt TEXT NOT NULL DEFAULT '',
+			home_prompt TEXT NOT NULL DEFAULT '',
+			companion_prompt TEXT NOT NULL DEFAULT '',
+			personality_prompt TEXT NOT NULL DEFAULT '',
+			art_style_prompt TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS character_reference_images (
@@ -72,20 +77,73 @@ func migrate(db *sql.DB) error {
 			created_at TEXT NOT NULL
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_one_canonical_reference ON character_reference_images(is_canonical) WHERE is_canonical = 1`,
-		`INSERT OR IGNORE INTO character_settings (id, character_prompt, style_prompt, updated_at) VALUES (1, '', '', ?)`,
 	}
 	for _, statement := range statements {
-		var err error
-		if strings.HasPrefix(statement, "INSERT OR IGNORE") {
-			_, err = db.Exec(statement, time.Now().UTC().Format(time.RFC3339Nano))
-		} else {
-			_, err = db.Exec(statement)
-		}
+		_, err := db.Exec(statement)
 		if err != nil {
 			return fmt.Errorf("initialize database schema: %w", err)
 		}
 	}
+	if err := migrateCharacterPrompts(db); err != nil {
+		return fmt.Errorf("migrate character prompts: %w", err)
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO character_settings (id, appearance_prompt, clothing_prompt, home_prompt, companion_prompt, personality_prompt, art_style_prompt, updated_at) VALUES (1, '', '', '', '', '', '', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("initialize character settings: %w", err)
+	}
 	return nil
+}
+
+func migrateCharacterPrompts(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(character_settings)`)
+	if err != nil {
+		return err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	legacyColumns := map[string]string{
+		"appearance_prompt":  "character_prompt",
+		"clothing_prompt":    "",
+		"home_prompt":        "",
+		"companion_prompt":   "",
+		"personality_prompt": "",
+		"art_style_prompt":   "style_prompt",
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for column, legacyColumn := range legacyColumns {
+		if columns[column] {
+			continue
+		}
+		if _, err := tx.Exec(`ALTER TABLE character_settings ADD COLUMN ` + column + ` TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if legacyColumn != "" && columns[legacyColumn] {
+			if _, err := tx.Exec(`UPDATE character_settings SET ` + column + ` = ` + legacyColumn + ` WHERE ` + column + ` = ''`); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) CreateTask(ctx context.Context, title, description string) (Task, error) {
@@ -277,7 +335,7 @@ func (s *Store) RetryTask(ctx context.Context, id string) (Task, error) {
 }
 
 func (s *Store) RecoverInterrupted(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET reward_status = 'failed', reward_error = 'Generation was interrupted. Retry when ready.' WHERE reward_status = 'generating'`)
+	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET reward_status = 'failed', reward_error = 'Generation was interrupted before its result was saved. The previous API request may have been charged; retry only if you want another request.' WHERE reward_status = 'generating'`)
 	return err
 }
 

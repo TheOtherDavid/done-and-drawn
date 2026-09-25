@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -56,6 +57,10 @@ func (c *Client) Generate(ctx context.Context, task store.Task, settings store.S
 	if c.assets == nil {
 		return nil, fmt.Errorf("image storage is unavailable")
 	}
+	references, err := c.selectReferences(settings.References)
+	if err != nil {
+		return nil, err
+	}
 
 	var body bytes.Buffer
 	multipartWriter := multipart.NewWriter(&body)
@@ -71,7 +76,7 @@ func (c *Client) Generate(ctx context.Context, task store.Task, settings store.S
 			return nil, err
 		}
 	}
-	for _, reference := range settings.References {
+	for _, reference := range references {
 		contentType, err := referenceContentType(reference.ImagePath)
 		if err != nil {
 			return nil, err
@@ -135,6 +140,50 @@ func (c *Client) Generate(ctx context.Context, task store.Task, settings store.S
 	return imageBytes, nil
 }
 
+func (c *Client) selectReferences(references []store.ReferenceImage) ([]store.ReferenceImage, error) {
+	ordered := make([]store.ReferenceImage, 0, len(references))
+	for _, reference := range references {
+		if reference.IsCanonical {
+			ordered = append(ordered, reference)
+			break
+		}
+	}
+	for _, reference := range references {
+		if !reference.IsCanonical {
+			ordered = append(ordered, reference)
+		}
+	}
+
+	selected := make([]store.ReferenceImage, 0, store.MaxReferenceImages)
+	var totalBytes int64
+	for _, reference := range ordered {
+		if len(selected) == store.MaxReferenceImages {
+			break
+		}
+		file, err := c.assets.Open(reference.ImagePath)
+		if err != nil {
+			return nil, fmt.Errorf("open reference image: %w", err)
+		}
+		info, statErr := file.Stat()
+		closeErr := file.Close()
+		if statErr != nil {
+			return nil, fmt.Errorf("stat reference image: %w", statErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close reference image: %w", closeErr)
+		}
+		if totalBytes+info.Size() > store.MaxReferenceBytes {
+			if reference.IsCanonical {
+				return nil, fmt.Errorf("canonical reference image exceeds the 32 MiB input limit")
+			}
+			continue
+		}
+		totalBytes += info.Size()
+		selected = append(selected, reference)
+	}
+	return selected, nil
+}
+
 func referenceContentType(imagePath string) (string, error) {
 	switch strings.ToLower(filepath.Ext(imagePath)) {
 	case ".jpg", ".jpeg":
@@ -150,16 +199,25 @@ func referenceContentType(imagePath string) (string, error) {
 
 func makePrompt(task store.Task, settings store.Settings) string {
 	var sections []string
-	if prompt := strings.TrimSpace(settings.CharacterPrompt); prompt != "" {
-		sections = append(sections, "Character definition:\n"+prompt)
-	}
-	if prompt := strings.TrimSpace(settings.StylePrompt); prompt != "" {
-		sections = append(sections, "Visual style:\n"+prompt)
+	for _, field := range []struct{ label, value string }{
+		{label: "Appearance", value: settings.Appearance},
+		{label: "Clothing", value: settings.Clothing},
+		{label: "Home", value: settings.Home},
+		{label: "Companion", value: settings.Companion},
+		{label: "Personality", value: settings.Personality},
+		{label: "Art style", value: settings.ArtStyle},
+	} {
+		if prompt := strings.TrimSpace(field.value); prompt != "" {
+			sections = append(sections, field.label+":\n"+prompt)
+		}
 	}
 	sections = append(sections,
 		"Create one warm, celebratory reward illustration showing the character from the provided reference images completing or celebrating this task. Preserve the character's recognizable appearance. Do not add text or lettering to the image.",
 		"Task: "+task.Title,
 	)
+	if rand.Intn(100) < 30 {
+		sections = append(sections, "When it fits, give the scene a whimsical, metaphorical, dreamlike, or aspiration-based twist inspired by the task; keep the completed task recognizable.")
+	}
 	if strings.TrimSpace(task.Description) != "" {
 		sections = append(sections, "Task details: "+task.Description)
 	}

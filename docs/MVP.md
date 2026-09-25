@@ -51,7 +51,7 @@ Open tasks have reward state `none`. Completing a task changes `completed_at` an
 
 ### `character_settings`
 
-One singleton row (`id = 1`) containing `character_prompt`, `style_prompt`, and `updated_at`.
+One singleton row (`id = 1`) containing separate prompts for appearance, clothing, home, companion, personality, and art style, plus `updated_at`. Existing `character_prompt` and `style_prompt` values migrate to appearance and art style respectively.
 
 ### `character_reference_images`
 
@@ -66,7 +66,7 @@ The settings UI can replace the canonical image and manage optional additional r
 
 1. The user creates a manual task. It is saved as open with reward state `none`.
 2. The user completes it. The API commits the completion timestamp and `queued` reward state together, then returns the updated task without waiting for image generation.
-3. The single worker claims a queued task by changing it to `generating` in SQLite, builds an image request from the task text plus the current character prompt, style prompt, and reference images, and calls OpenAI using the backend-only key.
+3. The single worker claims a queued task by changing it to `generating` in SQLite, builds an image request from the task text plus the current appearance, clothing, home, companion, personality, art style, and reference images, and calls OpenAI using the backend-only key.
 4. On success, the worker saves the image to local storage and changes the task to `ready` with its image path. The frontend polls task state and reveals the image prominently; the completed task card keeps a thumbnail.
 5. On failure, the worker records `failed` and a concise error. There are no automatic generation retries. The user can explicitly retry from the reward view, which returns that completed task to `queued`.
 

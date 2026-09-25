@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,6 +21,15 @@ import (
 )
 
 func main() {
+	appAddr := envOr("APP_ADDR", "0.0.0.0:8080")
+	allowedHosts, err := httpapi.ParseAllowedHosts(os.Getenv("APP_ALLOWED_HOSTS"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if host := boundHost(appAddr); host != "" {
+		allowedHosts = append(allowedHosts, host)
+	}
+
 	dataDir := envOr("APP_DATA_DIR", "./data")
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		log.Fatalf("create data directory: %v", err)
@@ -42,11 +52,17 @@ func main() {
 	wake := make(chan struct{}, 1)
 	imageClient := openai.New(os.Getenv("OPENAI_API_KEY"), envOr("OPENAI_IMAGE_MODEL", "gpt-image-2.5-sunburst")).WithAssets(imageStore)
 	backgroundWorker := worker.New(database, imageStore, imageClient, wake)
-	go backgroundWorker.Run(ctx)
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		backgroundWorker.Run(workerCtx)
+	}()
 
-	api := httpapi.New(database, imageStore, wake, os.Getenv("OPENAI_API_KEY") != "", web.Files)
+	api := httpapi.New(database, imageStore, wake, os.Getenv("OPENAI_API_KEY") != "", web.Files, allowedHosts...)
 	server := &http.Server{
-		Addr:              envOr("APP_ADDR", "0.0.0.0:8080"),
+		Addr:              appAddr,
 		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -54,17 +70,38 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
+		stopWorker()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("server shutdown: %v", err)
+		}
 	}()
 
 	log.Printf("Done and Drawn server listening on %s", server.Addr)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("server failed: %v", err)
+	serveErr := server.ListenAndServe()
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		stopWorker()
+		<-workerDone
+		log.Fatalf("server failed: %v", serveErr)
 	}
+	<-shutdownDone
+	<-workerDone
+}
+
+func boundHost(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+		return ""
+	}
+	return host
 }
 
 func envOr(name, fallback string) string {

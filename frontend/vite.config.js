@@ -8,9 +8,10 @@ export default defineConfig({
     emptyOutDir: false,
   },
   server: {
+    host: '127.0.0.1',
     proxy: {
-      '/api': 'http://127.0.0.1:8080',
-      '/media': 'http://127.0.0.1:8080',
+      '/api': { target: 'http://127.0.0.1:8080', changeOrigin: false },
+      '/media': { target: 'http://127.0.0.1:8080', changeOrigin: false },
     },
   },
 })

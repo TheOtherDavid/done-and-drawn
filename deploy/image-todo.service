@@ -14,6 +14,7 @@ Environment=APP_ADDR=0.0.0.0:8080
 ExecStart=/opt/image-todo/server
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=8min
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true

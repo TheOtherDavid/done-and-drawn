@@ -9,6 +9,11 @@ import (
 type RewardStatus string
 
 const (
+	MaxReferenceImages = 16
+	MaxReferenceBytes  = 32 << 20
+)
+
+const (
 	RewardNone       RewardStatus = "none"
 	RewardQueued     RewardStatus = "queued"
 	RewardGenerating RewardStatus = "generating"
@@ -37,11 +42,15 @@ type ReferenceImage struct {
 }
 
 type Settings struct {
-	CharacterPrompt string           `json:"character_prompt"`
-	StylePrompt     string           `json:"style_prompt"`
-	UpdatedAt       time.Time        `json:"updated_at"`
-	References      []ReferenceImage `json:"references"`
-	CanGenerate     bool             `json:"can_generate"`
+	Appearance  string           `json:"appearance"`
+	Clothing    string           `json:"clothing"`
+	Home        string           `json:"home"`
+	Companion   string           `json:"companion"`
+	Personality string           `json:"personality"`
+	ArtStyle    string           `json:"art_style"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	References  []ReferenceImage `json:"references"`
+	CanGenerate bool             `json:"can_generate"`
 }
 
 func NewID() (string, error) {

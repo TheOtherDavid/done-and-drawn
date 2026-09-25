@@ -11,7 +11,7 @@ import (
 func (s *Store) GetSettings(ctx context.Context) (Settings, error) {
 	var settings Settings
 	var updatedAt string
-	if err := s.db.QueryRowContext(ctx, `SELECT character_prompt, style_prompt, updated_at FROM character_settings WHERE id = 1`).Scan(&settings.CharacterPrompt, &settings.StylePrompt, &updatedAt); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT appearance_prompt, clothing_prompt, home_prompt, companion_prompt, personality_prompt, art_style_prompt, updated_at FROM character_settings WHERE id = 1`).Scan(&settings.Appearance, &settings.Clothing, &settings.Home, &settings.Companion, &settings.Personality, &settings.ArtStyle, &updatedAt); err != nil {
 		return Settings{}, err
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, updatedAt)
@@ -46,8 +46,8 @@ func (s *Store) GetSettings(ctx context.Context) (Settings, error) {
 	return settings, nil
 }
 
-func (s *Store) SaveSettings(ctx context.Context, characterPrompt, stylePrompt string) (Settings, error) {
-	_, err := s.db.ExecContext(ctx, `UPDATE character_settings SET character_prompt = ?, style_prompt = ?, updated_at = ? WHERE id = 1`, characterPrompt, stylePrompt, time.Now().UTC().Format(time.RFC3339Nano))
+func (s *Store) SaveSettings(ctx context.Context, appearance, clothing, home, companion, personality, artStyle string) (Settings, error) {
+	_, err := s.db.ExecContext(ctx, `UPDATE character_settings SET appearance_prompt = ?, clothing_prompt = ?, home_prompt = ?, companion_prompt = ?, personality_prompt = ?, art_style_prompt = ?, updated_at = ? WHERE id = 1`, appearance, clothing, home, companion, personality, artStyle, time.Now().UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return Settings{}, err
 	}
@@ -65,6 +65,9 @@ func (s *Store) AddReference(ctx context.Context, id, imagePath string) (Referen
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM character_reference_images`).Scan(&count); err != nil {
 		return ReferenceImage{}, err
 	}
+	if count >= MaxReferenceImages {
+		return ReferenceImage{}, ErrReferenceLimit
+	}
 	canonical := 0
 	if count == 0 {
 		canonical = 1
@@ -76,6 +79,40 @@ func (s *Store) AddReference(ctx context.Context, id, imagePath string) (Referen
 		return ReferenceImage{}, err
 	}
 	return ReferenceImage{ID: id, ImagePath: imagePath, IsCanonical: canonical == 1, CreatedAt: now}, nil
+}
+
+func (s *Store) ReplaceReferenceImage(ctx context.Context, id, imagePath string) (ReferenceImage, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ReferenceImage{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE character_reference_images SET image_path = ? WHERE id = ?`, imagePath, id)
+	if err != nil {
+		return ReferenceImage{}, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return ReferenceImage{}, err
+	}
+	if changed == 0 {
+		return ReferenceImage{}, ErrNotFound
+	}
+	var reference ReferenceImage
+	var canonical int
+	var created string
+	if err := tx.QueryRowContext(ctx, `SELECT id, image_path, is_canonical, created_at FROM character_reference_images WHERE id = ?`, id).Scan(&reference.ID, &reference.ImagePath, &canonical, &created); err != nil {
+		return ReferenceImage{}, err
+	}
+	reference.IsCanonical = canonical == 1
+	reference.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return ReferenceImage{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ReferenceImage{}, err
+	}
+	return reference, nil
 }
 
 func (s *Store) SetCanonicalReference(ctx context.Context, id string) error {

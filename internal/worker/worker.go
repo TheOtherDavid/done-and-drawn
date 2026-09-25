@@ -33,7 +33,11 @@ func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
-		worked, err := w.processNext(ctx)
+		// Cancellation stops new claims, but an active request must finish so its
+		// paid result can be saved before the process exits.
+		jobCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 7*time.Minute)
+		worked, err := w.processNext(jobCtx)
+		cancel()
 		if err != nil {
 			log.Printf("reward worker: %v", err)
 		}
